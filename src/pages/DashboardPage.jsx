@@ -29,21 +29,29 @@ export default function DashboardPage() {
   const [pageTab, setPageTab] = useState('events'); // 'events' | 'chat' | 'admin'
   const [unreadChat, setUnreadChat] = useState(0);
   const lastSeenChatId = useRef(0);
+  const pageTabRef = useRef('events');
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
 
   // ── Śledzenie nieprzeczytanych wiadomości na czacie ────────────────────────
-  // Zapisz ostatnią widzianą wiadomość gdy użytkownik jest na zakładce czatu
+  // Trzymaj aktualną zakładkę w ref żeby polling miał świeżą wartość
+  useEffect(() => {
+    pageTabRef.current = pageTab;
+  }, [pageTab]);
+
   const handleSetPageTab = useCallback((tab) => {
+    setPageTab(tab);
     if (tab === 'chat') {
       setUnreadChat(0);
+      // Zapamiętaj aktualny ostatni ID jako przeczytany
+      // (zostanie zaktualizowany przy najbliższym pollingu)
     }
-    setPageTab(tab);
   }, []);
 
-  // Pobieraj liczbę nowych wiadomości w tle co 5s
+  // Polling co 5s — jeden efekt, bez zależności od pageTab
   useEffect(() => {
     let mounted = true;
 
@@ -52,37 +60,37 @@ export default function DashboardPage() {
         const data = await api.getChatMessages();
         if (!mounted) return;
         const msgs = data.messages || [];
-        if (msgs.length > 0) {
-          const latestId = Math.max(...msgs.map(m => m.id));
-          // Przy pierwszym załadowaniu ustaw lastSeen bez pokazywania badge'a
-          if (lastSeenChatId.current === 0) {
-            lastSeenChatId.current = latestId;
-          } else if (pageTab === 'chat') {
-            // Użytkownik jest na czacie — aktualizuj lastSeen
-            lastSeenChatId.current = latestId;
-            setUnreadChat(0);
-          } else {
-            // Użytkownik nie jest na czacie — policz nowe
-            const newCount = msgs.filter(m => m.id > lastSeenChatId.current && m.userId !== user.id).length;
-            setUnreadChat(newCount);
-          }
+        if (msgs.length === 0) return;
+
+        const latestId = Math.max(...msgs.map(m => m.id));
+
+        // Pierwszy raz — zapamiętaj stan bez badge'a
+        if (!initializedRef.current) {
+          lastSeenChatId.current = latestId;
+          initializedRef.current = true;
+          return;
+        }
+
+        if (pageTabRef.current === 'chat') {
+          // Użytkownik jest na czacie — wszystko przeczytane
+          lastSeenChatId.current = latestId;
+          setUnreadChat(0);
+        } else {
+          // Użytkownik nie jest na czacie — policz nowe od innych
+          const newCount = msgs.filter(
+            m => m.id > lastSeenChatId.current && m.userId !== user.id
+          ).length;
+          setUnreadChat(newCount);
         }
       } catch {
-        // cicho ignoruj błędy pollingu
+        // cicho ignoruj
       }
     };
 
     checkNewMessages();
     const interval = setInterval(checkNewMessages, 5000);
     return () => { mounted = false; clearInterval(interval); };
-  }, [pageTab, user.id]);
-
-  // Gdy użytkownik przechodzi na czat — wyzeruj badge i zapamiętaj lastSeen
-  useEffect(() => {
-    if (pageTab === 'chat') {
-      setUnreadChat(0);
-    }
-  }, [pageTab]);
+  }, [user.id]); // tylko user.id — nie restartuj przy zmianie zakładki
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleRegister = useCallback(async (eventId) => {
