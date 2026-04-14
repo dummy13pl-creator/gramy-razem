@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useEvents } from '../hooks/useEvents';
 import { useToast } from '../hooks/useToast';
+import { api } from '../utils/api';
 import Header from '../components/Header';
 import EventCard from '../components/EventCard';
 import EventModal from '../components/EventModal';
@@ -25,11 +26,63 @@ export default function DashboardPage() {
   const [confirm, setConfirm] = useState(null);
   const [filter, setFilter] = useState('all');
   const [saving, setSaving] = useState(false);
-  const [pageTab, setPageTab] = useState('events'); // 'events' | 'chat'
+  const [pageTab, setPageTab] = useState('events'); // 'events' | 'chat' | 'admin'
+  const [unreadChat, setUnreadChat] = useState(0);
+  const lastSeenChatId = useRef(0);
 
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
+
+  // ── Śledzenie nieprzeczytanych wiadomości na czacie ────────────────────────
+  // Zapisz ostatnią widzianą wiadomość gdy użytkownik jest na zakładce czatu
+  const handleSetPageTab = useCallback((tab) => {
+    if (tab === 'chat') {
+      setUnreadChat(0);
+    }
+    setPageTab(tab);
+  }, []);
+
+  // Pobieraj liczbę nowych wiadomości w tle co 5s
+  useEffect(() => {
+    let mounted = true;
+
+    const checkNewMessages = async () => {
+      try {
+        const data = await api.getChatMessages();
+        if (!mounted) return;
+        const msgs = data.messages || [];
+        if (msgs.length > 0) {
+          const latestId = Math.max(...msgs.map(m => m.id));
+          // Przy pierwszym załadowaniu ustaw lastSeen bez pokazywania badge'a
+          if (lastSeenChatId.current === 0) {
+            lastSeenChatId.current = latestId;
+          } else if (pageTab === 'chat') {
+            // Użytkownik jest na czacie — aktualizuj lastSeen
+            lastSeenChatId.current = latestId;
+            setUnreadChat(0);
+          } else {
+            // Użytkownik nie jest na czacie — policz nowe
+            const newCount = msgs.filter(m => m.id > lastSeenChatId.current && m.userId !== user.id).length;
+            setUnreadChat(newCount);
+          }
+        }
+      } catch {
+        // cicho ignoruj błędy pollingu
+      }
+    };
+
+    checkNewMessages();
+    const interval = setInterval(checkNewMessages, 5000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, [pageTab, user.id]);
+
+  // Gdy użytkownik przechodzi na czat — wyzeruj badge i zapamiętaj lastSeen
+  useEffect(() => {
+    if (pageTab === 'chat') {
+      setUnreadChat(0);
+    }
+  }, [pageTab]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleRegister = useCallback(async (eventId) => {
@@ -142,18 +195,37 @@ export default function DashboardPage() {
             { id: 'chat', label: '💬 Czat' },
             ...(isAdmin ? [{ id: 'admin', label: '🛡️ Admin' }] : []),
           ].map((t) => (
-            <button key={t.id} onClick={() => setPageTab(t.id)} style={{
+            <button key={t.id} onClick={() => handleSetPageTab(t.id)} style={{
               flex: 1, padding: '10px 0', borderRadius: 'var(--radius-sm)',
               border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
               fontFamily: 'var(--font-body)', transition: 'all .2s',
               background: pageTab === t.id
                 ? t.id === 'admin' ? 'rgba(245,158,11,0.12)' : 'rgba(34,211,238,0.12)'
-                : 'transparent',
+                : t.id === 'chat' && unreadChat > 0
+                  ? 'rgba(34,211,238,0.06)'
+                  : 'transparent',
               color: pageTab === t.id
                 ? t.id === 'admin' ? '#fbbf24' : 'var(--accent-cyan)'
-                : 'var(--text-muted)',
+                : t.id === 'chat' && unreadChat > 0
+                  ? 'var(--accent-cyan)'
+                  : 'var(--text-muted)',
+              position: 'relative',
             }}>
               {t.label}
+              {t.id === 'chat' && unreadChat > 0 && pageTab !== 'chat' && (
+                <span style={{
+                  position: 'absolute', top: 4, right: 8,
+                  minWidth: 18, height: 18, borderRadius: 9,
+                  background: 'var(--accent-red)', color: '#fff',
+                  fontSize: 10, fontWeight: 800,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 5px', lineHeight: 1,
+                  animation: 'fadeIn .3s ease-out',
+                  boxShadow: '0 2px 8px rgba(239,68,68,0.4)',
+                }}>
+                  {unreadChat > 99 ? '99+' : unreadChat}
+                </span>
+              )}
             </button>
           ))}
         </div>
