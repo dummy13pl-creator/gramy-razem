@@ -134,6 +134,12 @@ export default function Chat({ userId }) {
       const data = await api.getChatMessages();
       setMessages(data.messages);
       setError(null);
+      // Oznacz ostatnią wiadomość jako przeczytaną
+      const msgs = data.messages || [];
+      if (msgs.length > 0) {
+        const latestId = Math.max(...msgs.map(m => m.id));
+        api.markChatSeen(latestId).catch(() => {});
+      }
     } catch (err) {
       setError(err.message);
     } finally {

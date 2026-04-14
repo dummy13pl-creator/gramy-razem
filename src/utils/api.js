@@ -100,6 +100,12 @@ export const api = {
 
   sendChatMessage: (content) =>
     request('/chat', { method: 'POST', body: { content } }),
+
+  getChatStatus: () =>
+    request('/chat/status'),
+
+  markChatSeen: (lastSeenId) =>
+    request('/chat/status', { method: 'POST', body: { lastSeenId } }),
 };
 
 export { ApiError };
