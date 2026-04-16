@@ -115,13 +115,13 @@ export const api = {
     request('/polls', { method: 'POST', body: { question, options } }),
 
   deletePoll: (id) =>
-    request(`/polls/${id}`, { method: 'DELETE' }),
+    request(`/polls?id=${id}`, { method: 'DELETE' }),
 
   votePoll: (pollId, optionId) =>
-    request(`/polls/${pollId}/vote`, { method: 'POST', body: { optionId } }),
+    request(`/polls?action=vote&id=${pollId}`, { method: 'POST', body: { optionId } }),
 
   unvotePoll: (pollId) =>
-    request(`/polls/${pollId}/vote`, { method: 'DELETE' }),
+    request(`/polls?action=vote&id=${pollId}`, { method: 'DELETE' }),
 };
 
 export { ApiError };

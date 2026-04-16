@@ -1,4 +1,4 @@
-import { getDb, verifyToken, json, error } from '../_lib/helpers.js';
+import { getDb, verifyToken, json, error } from './_lib/helpers.js';
 
 async function getPollWithStats(sql, pollId, currentUserId, isAdmin) {
   const polls = await sql`
@@ -63,7 +63,7 @@ async function getPollWithStats(sql, pollId, currentUserId, isAdmin) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -74,9 +74,14 @@ export default async function handler(req, res) {
     const sql = getDb();
     const isAdmin = user.role === 'admin';
 
-    console.log('[polls/index]', req.method, 'user:', user.id, 'role:', user.role);
+    // Akcja przekazywana jako ?action=vote lub ?action=delete
+    // ID ankiety jako ?id=5
+    const { action, id } = req.query;
 
-    if (req.method === 'GET') {
+    console.log('[polls]', req.method, 'action:', action, 'id:', id, 'user:', user.id);
+
+    // ── GET /api/polls — lista wszystkich ankiet ──────────────────────────
+    if (req.method === 'GET' && !action) {
       const polls = await sql`SELECT id FROM polls ORDER BY created_at DESC`;
       const result = await Promise.all(
         polls.map(p => getPollWithStats(sql, p.id, user.id, isAdmin))
@@ -84,7 +89,8 @@ export default async function handler(req, res) {
       return json(res, { polls: result });
     }
 
-    if (req.method === 'POST') {
+    // ── POST /api/polls — utwórz ankietę (admin) ──────────────────────────
+    if (req.method === 'POST' && !action) {
       if (!isAdmin) return error(res, 'Brak uprawnień administratora', 403);
 
       const { question, options } = req.body || {};
@@ -92,10 +98,10 @@ export default async function handler(req, res) {
         return error(res, 'Pytanie musi mieć co najmniej 3 znaki');
       }
       if (!Array.isArray(options) || options.length < 2) {
-        return error(res, 'Ankieta musi mieć co najmniej 2 opcje odpowiedzi');
+        return error(res, 'Ankieta musi mieć co najmniej 2 opcje');
       }
       if (options.length > 10) {
-        return error(res, 'Ankieta może mieć maksymalnie 10 opcji odpowiedzi');
+        return error(res, 'Ankieta może mieć maksymalnie 10 opcji');
       }
       const cleaned = options.map(o => (o || '').trim()).filter(Boolean);
       if (cleaned.length < 2) return error(res, 'Podaj co najmniej 2 niepuste opcje');
@@ -117,9 +123,63 @@ export default async function handler(req, res) {
       return json(res, { poll }, 201);
     }
 
+    // Wszystkie pozostałe akcje wymagają ID ankiety
+    const pollId = parseInt(id);
+    if (!pollId || isNaN(pollId)) return error(res, 'Brak ID ankiety');
+
+    const pollCheck = await sql`SELECT * FROM polls WHERE id = ${pollId}`;
+    if (pollCheck.length === 0) return error(res, 'Ankieta nie znaleziona', 404);
+
+    // ── DELETE /api/polls?id=5 — usuń ankietę ─────────────────────────────
+    if (req.method === 'DELETE' && !action) {
+      if (!isAdmin) return error(res, 'Brak uprawnień administratora', 403);
+      await sql`DELETE FROM poll_votes WHERE poll_id = ${pollId}`;
+      await sql`DELETE FROM poll_options WHERE poll_id = ${pollId}`;
+      await sql`DELETE FROM polls WHERE id = ${pollId}`;
+      return json(res, { message: 'Ankieta usunięta' });
+    }
+
+    // ── POST /api/polls?action=vote&id=5 — oddaj głos ─────────────────────
+    if (req.method === 'POST' && action === 'vote') {
+      const { optionId } = req.body || {};
+      const optId = parseInt(optionId);
+      if (!optId || isNaN(optId)) return error(res, 'Wybierz opcję');
+
+      const options = await sql`
+        SELECT * FROM poll_options WHERE id = ${optId} AND poll_id = ${pollId}
+      `;
+      if (options.length === 0) return error(res, 'Nieprawidłowa opcja');
+
+      const existing = await sql`
+        SELECT * FROM poll_votes WHERE poll_id = ${pollId} AND user_id = ${user.id}
+      `;
+
+      if (existing.length > 0) {
+        await sql`
+          UPDATE poll_votes SET option_id = ${optId}, voted_at = NOW()
+          WHERE poll_id = ${pollId} AND user_id = ${user.id}
+        `;
+      } else {
+        await sql`
+          INSERT INTO poll_votes (poll_id, option_id, user_id)
+          VALUES (${pollId}, ${optId}, ${user.id})
+        `;
+      }
+
+      const poll = await getPollWithStats(sql, pollId, user.id, isAdmin);
+      return json(res, { message: 'Głos zapisany', poll });
+    }
+
+    // ── DELETE /api/polls?action=vote&id=5 — cofnij głos ──────────────────
+    if (req.method === 'DELETE' && action === 'vote') {
+      await sql`DELETE FROM poll_votes WHERE poll_id = ${pollId} AND user_id = ${user.id}`;
+      const poll = await getPollWithStats(sql, pollId, user.id, isAdmin);
+      return json(res, { message: 'Głos cofnięty', poll });
+    }
+
     return error(res, 'Nieprawidłowe żądanie', 405);
   } catch (err) {
-    console.error('[polls/index error]', err);
+    console.error('[polls error]', err);
     return error(res, `Błąd serwera: ${err.message}`, 500);
   }
 }
