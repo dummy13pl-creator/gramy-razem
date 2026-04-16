@@ -67,52 +67,59 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const user = verifyToken(req);
-  if (!user) return error(res, 'Brak autoryzacji', 401);
+  try {
+    const user = verifyToken(req);
+    if (!user) return error(res, 'Brak autoryzacji', 401);
 
-  const sql = getDb();
-  const isAdmin = user.role === 'admin';
+    const sql = getDb();
+    const isAdmin = user.role === 'admin';
 
-  if (req.method === 'GET') {
-    const polls = await sql`SELECT id FROM polls ORDER BY created_at DESC`;
-    const result = await Promise.all(
-      polls.map(p => getPollWithStats(sql, p.id, user.id, isAdmin))
-    );
-    return json(res, { polls: result });
-  }
+    console.log('[polls/index]', req.method, 'user:', user.id, 'role:', user.role);
 
-  if (req.method === 'POST') {
-    if (!isAdmin) return error(res, 'Brak uprawnień administratora', 403);
-
-    const { question, options } = req.body || {};
-    if (!question || question.trim().length < 3) {
-      return error(res, 'Pytanie musi mieć co najmniej 3 znaki');
+    if (req.method === 'GET') {
+      const polls = await sql`SELECT id FROM polls ORDER BY created_at DESC`;
+      const result = await Promise.all(
+        polls.map(p => getPollWithStats(sql, p.id, user.id, isAdmin))
+      );
+      return json(res, { polls: result });
     }
-    if (!Array.isArray(options) || options.length < 2) {
-      return error(res, 'Ankieta musi mieć co najmniej 2 opcje odpowiedzi');
-    }
-    if (options.length > 10) {
-      return error(res, 'Ankieta może mieć maksymalnie 10 opcji odpowiedzi');
-    }
-    const cleaned = options.map(o => (o || '').trim()).filter(Boolean);
-    if (cleaned.length < 2) return error(res, 'Podaj co najmniej 2 niepuste opcje');
 
-    const inserted = await sql`
-      INSERT INTO polls (question, created_by) VALUES (${question.trim()}, ${user.id})
-      RETURNING id
-    `;
-    const pollId = inserted[0].id;
+    if (req.method === 'POST') {
+      if (!isAdmin) return error(res, 'Brak uprawnień administratora', 403);
 
-    for (let i = 0; i < cleaned.length; i++) {
-      await sql`
-        INSERT INTO poll_options (poll_id, content, display_order)
-        VALUES (${pollId}, ${cleaned[i]}, ${i})
+      const { question, options } = req.body || {};
+      if (!question || question.trim().length < 3) {
+        return error(res, 'Pytanie musi mieć co najmniej 3 znaki');
+      }
+      if (!Array.isArray(options) || options.length < 2) {
+        return error(res, 'Ankieta musi mieć co najmniej 2 opcje odpowiedzi');
+      }
+      if (options.length > 10) {
+        return error(res, 'Ankieta może mieć maksymalnie 10 opcji odpowiedzi');
+      }
+      const cleaned = options.map(o => (o || '').trim()).filter(Boolean);
+      if (cleaned.length < 2) return error(res, 'Podaj co najmniej 2 niepuste opcje');
+
+      const inserted = await sql`
+        INSERT INTO polls (question, created_by) VALUES (${question.trim()}, ${user.id})
+        RETURNING id
       `;
+      const pollId = inserted[0].id;
+
+      for (let i = 0; i < cleaned.length; i++) {
+        await sql`
+          INSERT INTO poll_options (poll_id, content, display_order)
+          VALUES (${pollId}, ${cleaned[i]}, ${i})
+        `;
+      }
+
+      const poll = await getPollWithStats(sql, pollId, user.id, isAdmin);
+      return json(res, { poll }, 201);
     }
 
-    const poll = await getPollWithStats(sql, pollId, user.id, isAdmin);
-    return json(res, { poll }, 201);
+    return error(res, 'Nieprawidłowe żądanie', 405);
+  } catch (err) {
+    console.error('[polls/index error]', err);
+    return error(res, `Błąd serwera: ${err.message}`, 500);
   }
-
-  return error(res, 'Nieprawidłowe żądanie', 405);
 }
