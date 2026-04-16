@@ -106,6 +106,22 @@ export const api = {
 
   markChatSeen: (lastSeenId) =>
     request('/chat/status', { method: 'POST', body: { lastSeenId } }),
+
+  // Ankiety
+  getPolls: () =>
+    request('/polls'),
+
+  createPoll: (question, options) =>
+    request('/polls', { method: 'POST', body: { question, options } }),
+
+  deletePoll: (id) =>
+    request(`/polls/${id}`, { method: 'DELETE' }),
+
+  votePoll: (pollId, optionId) =>
+    request(`/polls/${pollId}/vote`, { method: 'POST', body: { optionId } }),
+
+  unvotePoll: (pollId) =>
+    request(`/polls/${pollId}/vote`, { method: 'DELETE' }),
 };
 
 export { ApiError };

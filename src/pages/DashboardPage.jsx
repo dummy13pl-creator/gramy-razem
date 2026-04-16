@@ -10,6 +10,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Toast from '../components/Toast';
 import AdminPanel from '../components/AdminPanel';
 import Chat from '../components/Chat';
+import Polls from '../components/Polls';
 import { PlusIcon, CalendarIcon, LoaderIcon } from '../components/Icons';
 
 export default function DashboardPage() {
@@ -168,11 +169,12 @@ export default function DashboardPage() {
         <div style={{
           display: 'flex', gap: 4, marginBottom: 24, padding: 4,
           background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-sm)',
-          border: '1px solid var(--border-subtle)', maxWidth: isAdmin ? 480 : 320,
+          border: '1px solid var(--border-subtle)', maxWidth: isAdmin ? 640 : 480,
         }}>
           {[
             { id: 'events', label: '🏟️ Wydarzenia' },
             { id: 'chat', label: '💬 Czat' },
+            { id: 'polls', label: '📊 Ankiety' },
             ...(isAdmin ? [{ id: 'admin', label: '🛡️ Admin' }] : []),
           ].map((t) => (
             <button key={t.id} onClick={() => handleSetPageTab(t.id)} style={{
@@ -218,6 +220,11 @@ export default function DashboardPage() {
           }}>
             <Chat userId={user.id} />
           </div>
+        )}
+
+        {/* ── ANKIETY ───────────────────────────────────────────────────────── */}
+        {pageTab === 'polls' && (
+          <Polls isAdmin={isAdmin} currentUserId={user.id} notify={notify} />
         )}
 
         {/* ── PANEL ADMINISTRACYJNY ─────────────────────────────────────────── */}
