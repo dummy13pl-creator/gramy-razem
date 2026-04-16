@@ -1,4 +1,4 @@
-import { getDb, requireAuth, requireAdmin, json, error } from '../_lib/helpers.js';
+import { getDb, verifyToken, json, error } from '../_lib/helpers.js';
 
 async function getPollWithStats(sql, pollId, currentUserId, isAdmin) {
   const polls = await sql`
@@ -9,14 +9,12 @@ async function getPollWithStats(sql, pollId, currentUserId, isAdmin) {
   if (polls.length === 0) return null;
   const poll = polls[0];
 
-  // Opcje odpowiedzi
   const options = await sql`
     SELECT id, content, display_order as "displayOrder"
     FROM poll_options WHERE poll_id = ${pollId}
     ORDER BY display_order ASC
   `;
 
-  // Liczba głosów na każdą opcję
   const votes = await sql`
     SELECT option_id as "optionId", COUNT(*)::int as count
     FROM poll_votes WHERE poll_id = ${pollId}
@@ -25,14 +23,11 @@ async function getPollWithStats(sql, pollId, currentUserId, isAdmin) {
   const voteMap = {};
   votes.forEach(v => { voteMap[v.optionId] = v.count; });
 
-  // Czy aktualny użytkownik już głosował
   const userVote = await sql`
     SELECT option_id FROM poll_votes
     WHERE poll_id = ${pollId} AND user_id = ${currentUserId}
   `;
   const userVotedOptionId = userVote.length > 0 ? userVote[0].option_id : null;
-
-  // Suma wszystkich głosów
   const totalVotes = votes.reduce((s, v) => s + v.count, 0);
 
   const optionsWithStats = options.map(o => ({
@@ -40,14 +35,12 @@ async function getPollWithStats(sql, pollId, currentUserId, isAdmin) {
     votes: voteMap[o.id] || 0,
   }));
 
-  // Dla admina — kto głosował na co
   let voters = null;
   if (isAdmin) {
     const allVoters = await sql`
       SELECT pv.option_id as "optionId", u.id as "userId", u.name as "userName"
       FROM poll_votes pv JOIN users u ON u.id = pv.user_id
-      WHERE pv.poll_id = ${pollId}
-      ORDER BY u.name
+      WHERE pv.poll_id = ${pollId} ORDER BY u.name
     `;
     voters = {};
     for (const v of allVoters) {
@@ -74,13 +67,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const user = requireAuth(req, res);
-  if (!user) return;
+  const user = verifyToken(req);
+  if (!user) return error(res, 'Brak autoryzacji', 401);
 
   const sql = getDb();
   const isAdmin = user.role === 'admin';
 
-  // GET — lista ankiet
   if (req.method === 'GET') {
     const polls = await sql`SELECT id FROM polls ORDER BY created_at DESC`;
     const result = await Promise.all(
@@ -89,12 +81,10 @@ export default async function handler(req, res) {
     return json(res, { polls: result });
   }
 
-  // POST — utwórz ankietę (tylko admin)
   if (req.method === 'POST') {
     if (!isAdmin) return error(res, 'Brak uprawnień administratora', 403);
 
     const { question, options } = req.body || {};
-
     if (!question || question.trim().length < 3) {
       return error(res, 'Pytanie musi mieć co najmniej 3 znaki');
     }
@@ -105,9 +95,7 @@ export default async function handler(req, res) {
       return error(res, 'Ankieta może mieć maksymalnie 10 opcji odpowiedzi');
     }
     const cleaned = options.map(o => (o || '').trim()).filter(Boolean);
-    if (cleaned.length < 2) {
-      return error(res, 'Podaj co najmniej 2 niepuste opcje');
-    }
+    if (cleaned.length < 2) return error(res, 'Podaj co najmniej 2 niepuste opcje');
 
     const inserted = await sql`
       INSERT INTO polls (question, created_by) VALUES (${question.trim()}, ${user.id})

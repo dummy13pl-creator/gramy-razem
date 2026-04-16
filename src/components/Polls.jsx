@@ -403,15 +403,33 @@ export default function Polls({ isAdmin, currentUserId, notify }) {
   };
 
   const handleVote = async (pollId, optionId) => {
-    await api.votePoll(pollId, optionId);
-    await fetchPolls();
-    notify('Głos zapisany');
+    try {
+      const data = await api.votePoll(pollId, optionId);
+      if (data.poll) {
+        setPolls(prev => prev.map(p => p.id === pollId ? data.poll : p));
+      } else {
+        await fetchPolls();
+      }
+      notify('Głos zapisany');
+    } catch (err) {
+      notify(err.message, 'error');
+      throw err;
+    }
   };
 
   const handleUnvote = async (pollId) => {
-    await api.unvotePoll(pollId);
-    await fetchPolls();
-    notify('Głos cofnięty');
+    try {
+      const data = await api.unvotePoll(pollId);
+      if (data.poll) {
+        setPolls(prev => prev.map(p => p.id === pollId ? data.poll : p));
+      } else {
+        await fetchPolls();
+      }
+      notify('Głos cofnięty');
+    } catch (err) {
+      notify(err.message, 'error');
+      throw err;
+    }
   };
 
   if (loading) {
