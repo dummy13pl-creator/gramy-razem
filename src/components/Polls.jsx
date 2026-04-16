@@ -367,6 +367,12 @@ export default function Polls({ isAdmin, currentUserId, notify }) {
     try {
       const data = await api.getPolls();
       setPolls(data.polls);
+      // Oznacz najnowszą ankietę jako widzianą
+      const polls = data.polls || [];
+      if (polls.length > 0) {
+        const latestId = Math.max(...polls.map(p => p.id));
+        api.markPollsSeen(latestId).catch(() => {});
+      }
     } catch (err) {
       notify(err.message, 'error');
     } finally {

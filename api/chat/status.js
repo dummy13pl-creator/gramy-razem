@@ -1,4 +1,4 @@
-import { getDb, requireAuth, json, error } from '../_lib/helpers.js';
+import { getDb, verifyToken, json, error } from '../_lib/helpers.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -6,56 +6,91 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const user = requireAuth(req, res);
-  if (!user) return;
+  try {
+    const user = verifyToken(req);
+    if (!user) return error(res, 'Brak autoryzacji', 401);
 
-  const sql = getDb();
+    const sql = getDb();
 
-  // GET — sprawdź czy są nieprzeczytane wiadomości
-  if (req.method === 'GET') {
-    // Pobierz najnowszy ID wiadomości
-    const latest = await sql`
-      SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1
-    `;
-    const latestId = latest.length > 0 ? latest[0].id : 0;
+    // ── GET — pobierz status nieprzeczytanych ─────────────────────────────
+    if (req.method === 'GET') {
+      // Najnowszy ID wiadomości czatu
+      const latestChat = await sql`SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1`;
+      const latestChatId = latestChat.length > 0 ? latestChat[0].id : 0;
 
-    // Pobierz ostatni widziany ID przez tego użytkownika
-    const seen = await sql`
-      SELECT last_seen_message_id FROM chat_last_seen WHERE user_id = ${user.id}
-    `;
-    const lastSeenId = seen.length > 0 ? seen[0].last_seen_message_id : 0;
+      // Najnowszy ID ankiety
+      const latestPoll = await sql`SELECT id FROM polls ORDER BY id DESC LIMIT 1`;
+      const latestPollId = latestPoll.length > 0 ? latestPoll[0].id : 0;
 
-    // Policz nieprzeczytane (od innych użytkowników)
-    let unread = 0;
-    if (latestId > lastSeenId) {
-      const countResult = await sql`
-        SELECT COUNT(*) as count FROM chat_messages
-        WHERE id > ${lastSeenId} AND user_id != ${user.id}
+      // Ostatnio widziane ID przez tego użytkownika
+      const seen = await sql`
+        SELECT last_seen_message_id, last_seen_poll_id
+        FROM chat_last_seen WHERE user_id = ${user.id}
       `;
-      unread = parseInt(countResult[0].count);
+      const lastSeenChatId = seen.length > 0 ? (seen[0].last_seen_message_id || 0) : 0;
+      const lastSeenPollId = seen.length > 0 ? (seen[0].last_seen_poll_id || 0) : 0;
+
+      // Liczba nieprzeczytanych wiadomości (od innych użytkowników)
+      let unreadChat = 0;
+      if (latestChatId > lastSeenChatId) {
+        const c = await sql`
+          SELECT COUNT(*)::int as count FROM chat_messages
+          WHERE id > ${lastSeenChatId} AND user_id != ${user.id}
+        `;
+        unreadChat = c[0].count;
+      }
+
+      // Liczba nowych ankiet (stworzonych przez innych)
+      let unreadPolls = 0;
+      if (latestPollId > lastSeenPollId) {
+        const p = await sql`
+          SELECT COUNT(*)::int as count FROM polls
+          WHERE id > ${lastSeenPollId} AND created_by != ${user.id}
+        `;
+        unreadPolls = p[0].count;
+      }
+
+      return json(res, {
+        unreadChat, latestChatId, lastSeenChatId,
+        unreadPolls, latestPollId, lastSeenPollId,
+      });
     }
 
-    return json(res, { unread, latestId, lastSeenId });
-  }
+    // ── POST — oznacz jako widziane ──────────────────────────────────────
+    if (req.method === 'POST') {
+      const { type } = req.query; // 'chat' lub 'polls'
+      const { lastSeenId } = req.body || {};
 
-  // POST — zapisz ostatni widziany ID
-  if (req.method === 'POST') {
-    const { lastSeenId } = req.body || {};
+      if (lastSeenId === undefined || lastSeenId === null) {
+        return error(res, 'Brak parametru lastSeenId');
+      }
 
-    if (!lastSeenId && lastSeenId !== 0) {
-      return error(res, 'Brak parametru lastSeenId');
+      const seenId = parseInt(lastSeenId);
+      if (isNaN(seenId)) return error(res, 'Nieprawidłowy lastSeenId');
+
+      if (type === 'polls') {
+        await sql`
+          INSERT INTO chat_last_seen (user_id, last_seen_poll_id, updated_at)
+          VALUES (${user.id}, ${seenId}, NOW())
+          ON CONFLICT (user_id)
+          DO UPDATE SET last_seen_poll_id = ${seenId}, updated_at = NOW()
+        `;
+      } else {
+        // domyślnie chat (zachowana wsteczna kompatybilność)
+        await sql`
+          INSERT INTO chat_last_seen (user_id, last_seen_message_id, updated_at)
+          VALUES (${user.id}, ${seenId}, NOW())
+          ON CONFLICT (user_id)
+          DO UPDATE SET last_seen_message_id = ${seenId}, updated_at = NOW()
+        `;
+      }
+
+      return json(res, { lastSeenId: seenId });
     }
 
-    // Upsert — wstaw lub zaktualizuj
-    await sql`
-      INSERT INTO chat_last_seen (user_id, last_seen_message_id, updated_at)
-      VALUES (${user.id}, ${lastSeenId}, NOW())
-      ON CONFLICT (user_id)
-      DO UPDATE SET last_seen_message_id = ${lastSeenId}, updated_at = NOW()
-    `;
-
-    return json(res, { lastSeenId });
+    return error(res, 'Nieprawidłowe żądanie', 405);
+  } catch (err) {
+    console.error('[chat/status error]', err);
+    return error(res, `Błąd serwera: ${err.message}`, 500);
   }
-
-  return error(res, 'Nieprawidłowe żądanie', 405);
 }

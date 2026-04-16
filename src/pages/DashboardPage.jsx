@@ -29,19 +29,23 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false);
   const [pageTab, setPageTab] = useState('events');
   const [unreadChat, setUnreadChat] = useState(0);
+  const [unreadPolls, setUnreadPolls] = useState(0);
 
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
 
-  // ── Sprawdzaj nieprzeczytane wiadomości co 5s ─────────────────────────────
+  // ── Sprawdzaj nieprzeczytane (czat i ankiety) co 5s ────────────────────────
   useEffect(() => {
     let mounted = true;
 
     const checkUnread = async () => {
       try {
         const data = await api.getChatStatus();
-        if (mounted) setUnreadChat(data.unread);
+        if (mounted) {
+          setUnreadChat(data.unreadChat ?? 0);
+          setUnreadPolls(data.unreadPolls ?? 0);
+        }
       } catch {}
     };
 
@@ -50,16 +54,24 @@ export default function DashboardPage() {
     return () => { mounted = false; clearInterval(interval); };
   }, [user.id]);
 
-  // Gdy użytkownik otwiera czat — oznacz jako przeczytane
+  // Gdy użytkownik otwiera czat lub ankiety — oznacz jako przeczytane
   const handleSetPageTab = useCallback(async (tab) => {
     setPageTab(tab);
     if (tab === 'chat') {
       setUnreadChat(0);
       try {
-        // Pobierz najnowszy ID i zapisz jako ostatni widziany
         const status = await api.getChatStatus();
-        if (status.latestId > 0) {
-          await api.markChatSeen(status.latestId);
+        if (status.latestChatId > 0) {
+          await api.markChatSeen(status.latestChatId);
+        }
+      } catch {}
+    }
+    if (tab === 'polls') {
+      setUnreadPolls(0);
+      try {
+        const status = await api.getChatStatus();
+        if (status.latestPollId > 0) {
+          await api.markPollsSeen(status.latestPollId);
         }
       } catch {}
     }
@@ -172,44 +184,48 @@ export default function DashboardPage() {
           border: '1px solid var(--border-subtle)', maxWidth: isAdmin ? 640 : 480,
         }}>
           {[
-            { id: 'events', label: '🏟️ Wydarzenia' },
-            { id: 'chat', label: '💬 Czat' },
-            { id: 'polls', label: '📊 Ankiety' },
-            ...(isAdmin ? [{ id: 'admin', label: '🛡️ Admin' }] : []),
-          ].map((t) => (
-            <button key={t.id} onClick={() => handleSetPageTab(t.id)} style={{
-              flex: 1, padding: '10px 0', borderRadius: 'var(--radius-sm)',
-              border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
-              fontFamily: 'var(--font-body)', transition: 'all .2s',
-              background: pageTab === t.id
-                ? t.id === 'admin' ? 'rgba(245,158,11,0.12)' : 'rgba(34,211,238,0.12)'
-                : t.id === 'chat' && unreadChat > 0
-                  ? 'rgba(34,211,238,0.06)'
-                  : 'transparent',
-              color: pageTab === t.id
-                ? t.id === 'admin' ? '#fbbf24' : 'var(--accent-cyan)'
-                : t.id === 'chat' && unreadChat > 0
-                  ? 'var(--accent-cyan)'
-                  : 'var(--text-muted)',
-              position: 'relative',
-            }}>
-              {t.label}
-              {t.id === 'chat' && unreadChat > 0 && pageTab !== 'chat' && (
-                <span style={{
-                  position: 'absolute', top: 4, right: 8,
-                  minWidth: 18, height: 18, borderRadius: 9,
-                  background: 'var(--accent-red)', color: '#fff',
-                  fontSize: 10, fontWeight: 800,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: '0 5px', lineHeight: 1,
-                  animation: 'fadeIn .3s ease-out',
-                  boxShadow: '0 2px 8px rgba(239,68,68,0.4)',
-                }}>
-                  {unreadChat > 99 ? '99+' : unreadChat}
-                </span>
-              )}
-            </button>
-          ))}
+            { id: 'events', label: '🏟️ Wydarzenia', unread: 0 },
+            { id: 'chat', label: '💬 Czat', unread: unreadChat },
+            { id: 'polls', label: '📊 Ankiety', unread: unreadPolls },
+            ...(isAdmin ? [{ id: 'admin', label: '🛡️ Admin', unread: 0 }] : []),
+          ].map((t) => {
+            const isActive = pageTab === t.id;
+            const hasUnread = t.unread > 0 && !isActive;
+            return (
+              <button key={t.id} onClick={() => handleSetPageTab(t.id)} style={{
+                flex: 1, padding: '10px 0', borderRadius: 'var(--radius-sm)',
+                border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+                fontFamily: 'var(--font-body)', transition: 'all .2s',
+                background: isActive
+                  ? t.id === 'admin' ? 'rgba(245,158,11,0.12)' : 'rgba(34,211,238,0.12)'
+                  : hasUnread
+                    ? 'rgba(34,211,238,0.06)'
+                    : 'transparent',
+                color: isActive
+                  ? t.id === 'admin' ? '#fbbf24' : 'var(--accent-cyan)'
+                  : hasUnread
+                    ? 'var(--accent-cyan)'
+                    : 'var(--text-muted)',
+                position: 'relative',
+              }}>
+                {t.label}
+                {hasUnread && (
+                  <span style={{
+                    position: 'absolute', top: 4, right: 8,
+                    minWidth: 18, height: 18, borderRadius: 9,
+                    background: 'var(--accent-red)', color: '#fff',
+                    fontSize: 10, fontWeight: 800,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '0 5px', lineHeight: 1,
+                    animation: 'fadeIn .3s ease-out',
+                    boxShadow: '0 2px 8px rgba(239,68,68,0.4)',
+                  }}>
+                    {t.unread > 99 ? '99+' : t.unread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* ── CZAT ──────────────────────────────────────────────────────────── */}

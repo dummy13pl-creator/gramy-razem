@@ -107,6 +107,9 @@ export const api = {
   markChatSeen: (lastSeenId) =>
     request('/chat/status', { method: 'POST', body: { lastSeenId } }),
 
+  markPollsSeen: (lastSeenId) =>
+    request('/chat/status?type=polls', { method: 'POST', body: { lastSeenId } }),
+
   // Ankiety
   getPolls: () =>
     request('/polls'),
