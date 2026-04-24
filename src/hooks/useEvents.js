@@ -22,7 +22,7 @@ export function useEvents() {
   const createEvent = useCallback(async (eventData) => {
     const data = await api.createEvent(eventData);
     setEvents((prev) => [...prev, data.event].sort((a, b) =>
-      `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)
+      `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)
     ));
     return data.event;
   }, []);

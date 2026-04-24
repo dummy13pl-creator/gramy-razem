@@ -128,9 +128,9 @@ export default function EventCard({ event, userId, isAdmin, onRegister, onUnregi
           )}
 
           {/* Actions */}
-          {!isPast && (
+          {(!isPast || isAdmin) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-              {!isRegistered && !isFull && (
+              {!isPast && !isRegistered && !isFull && (
                 <button
                   onClick={() => handleAction(() => onRegister(event.id))}
                   disabled={actionLoading}
@@ -145,7 +145,7 @@ export default function EventCard({ event, userId, isAdmin, onRegister, onUnregi
                   <CheckIcon size={14} /> Zapisz się
                 </button>
               )}
-              {isRegistered && (
+              {!isPast && isRegistered && (
                 <button
                   onClick={() => handleAction(() => onUnregister(event.id))}
                   disabled={actionLoading}
@@ -160,25 +160,25 @@ export default function EventCard({ event, userId, isAdmin, onRegister, onUnregi
                   <XIcon size={14} /> Wypisz się
                 </button>
               )}
+              {isAdmin && !isPast && (
+                <button onClick={() => onEdit(event)} style={{
+                  padding: '9px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                  border: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.04)',
+                  color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-body)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <EditIcon /> Edytuj
+                </button>
+              )}
               {isAdmin && (
-                <>
-                  <button onClick={() => onEdit(event)} style={{
-                    padding: '9px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                    border: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.04)',
-                    color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-body)',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <EditIcon /> Edytuj
-                  </button>
-                  <button onClick={() => onDelete(event.id)} style={{
-                    padding: '9px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                    border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.05)',
-                    color: '#f87171', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-body)',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <TrashIcon /> Usuń
-                  </button>
-                </>
+                <button onClick={() => onDelete(event.id)} style={{
+                  padding: '9px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                  border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.05)',
+                  color: '#f87171', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-body)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <TrashIcon /> Usuń
+                </button>
               )}
             </div>
           )}

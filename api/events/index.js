@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     const events = await sql`
       SELECT e.*, u.name as "createdByName"
       FROM events e JOIN users u ON u.id = e.created_by
-      ORDER BY e.date ASC, e.time ASC
+      ORDER BY e.date DESC, e.time DESC
     `;
     const result = await Promise.all(events.map((e) => withRegistrations(sql, e)));
     return json(res, { events: result });
